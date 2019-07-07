@@ -14,7 +14,7 @@ use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::rc::Rc;
 use std::{env, fmt, fs};
 
@@ -24,7 +24,7 @@ use syntax::codemap::{CodeMap, FilePathMapping};
 use syntax::parse::{self, ParseSess};
 use syntax::print::pprust;
 use syntax::tokenstream::TokenStream;
-use syntex_syntax::ast::{Expr, ExprKind, Item, ItemKind, Stmt, StmtKind};
+use syntex_syntax::ast::{Expr, ExprKind, Item, ItemKind, Stmt, StmtKind, TyKind};
 
 fn type_name<T>(_arg: &T) -> String {
     unsafe { String::from(std::intrinsics::type_name::<T>()) }
@@ -51,8 +51,18 @@ fn ident2string(id: &syntex_pos::symbol::Ident) -> String {
 }
 
 #[derive(Hash, Eq, PartialEq)]
+struct Type {
+    path: Vec<(
+        String,
+        Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
+    )>,
+}
+#[derive(Hash, Eq, PartialEq)]
 struct Func {
-    path: Vec<String>,
+    path: Vec<(
+        String,
+        Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
+    )>,
 }
 impl Clone for Func {
     fn clone(&self) -> Self {
@@ -72,13 +82,18 @@ impl fmt::Debug for Func {
 impl fmt::Display for Func {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut is_1st: bool = true;
-        let mut tmp = String::from(&self.path[0]);
+        let mut tmp = String::from(&self.path[0].0);
         for seg in &self.path {
             if is_1st {
                 is_1st = false;
                 continue;
             }
-            tmp.push_str(&format!("::{}", seg));
+            tmp.push_str(&format!("::{}", seg.0));
+            match seg.1 {
+                _ => {
+                    error!("xcxcxcxcxcxcxc : {:?}", seg.1);
+                }
+            }
         }
         write!(f, "{}()", tmp)
     }
@@ -94,7 +109,7 @@ fn handle_item(record: &mut Record, item: &Item) {
     match &item.node {
         ItemKind::Fn(p_fn_decl, unsafety, constness, abi, rgenerics, p_block) => {
             let f = Func {
-                path: vec![id.clone()],
+                path: vec![(id.clone(), None)],
             };
             record.caller.insert(f.clone());
 
@@ -102,6 +117,47 @@ fn handle_item(record: &mut Record, item: &Item) {
                 handle_stmt(record, &f, &s);
             }
             // =============================================
+        }
+        ItemKind::Impl(
+            unsafety,
+            impl_polarity,
+            defaultness,
+            generics,
+            o_trait_ref,
+            p_ty,
+            vec_implitem,
+        ) => {
+            warn!("Target locked!!!!!!!!!!!!!!!!!!!");
+            info!("{:?}", item.node);
+            info!("{:?}", unsafety);
+            info!("{:?}", impl_polarity);
+            info!("{:?}", defaultness);
+            info!("gen  :\t{:?}", generics);
+            info!("trait:\t{:?}", o_trait_ref);
+            info!("type :\t{:?}", p_ty);
+            info!("impl :\t{:?}", vec_implitem);
+
+            match o_trait_ref {
+                Some(trait_ref) => {
+                    let mut f = Func { path: Vec::new() };
+                    for segment in &trait_ref.path.segments {
+                        let func_name = ident2string(&segment.identifier);
+                        trace!("seg ID : {}", func_name);
+                        f.path.push((func_name, segment.parameters.clone()));
+                    }
+                }
+                None => {}
+            }
+
+            info!("type kind {:?}", p_ty.node);
+            match &p_ty.node {
+                TyKind::Path(_, path) => {
+                    trace!("TyKind::Path");
+                }
+                _ => {
+                    error!("Unmatched Type Kind");
+                }
+            }
         }
 
         _ => error!("  this ItemKind is not used yet"),
@@ -156,8 +212,12 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
                     let mut f = Func { path: Vec::new() };
                     for segment in &path.segments {
                         let func_name = ident2string(&segment.identifier);
+                        if let Some(para) = &segment.parameters {
+                            trace!("segment: {:?}", para);
+                            trace!("segmenty: {}", type_name(&para));
+                        }
                         trace!("seg ID : {}", func_name);
-                        f.path.push(func_name);
+                        f.path.push((func_name, segment.parameters.clone()));
                     }
                     trace!("f: {:?}", f.path);
                     record.callee.insert(f.clone());
@@ -310,6 +370,8 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
 }
 
 struct Record {
+    types: HashSet<Type>,
+    impls: HashMap<Type, Func>,
     caller: HashSet<Func>,
     called: HashSet<(Func, Func)>,
     callee: HashSet<Func>,
@@ -319,7 +381,7 @@ fn mangling(func: &Func) -> String {
     let mut ret = String::from("_ZN");
 
     for seg in &func.path {
-        ret.push_str(&format!("{}{}", seg.len(), seg));
+        ret.push_str(&format!("{}{}", seg.0.len(), seg.0));
     }
     ret.push('E');
     ret
@@ -362,6 +424,8 @@ fn gen_callgraph(contents: &String) -> Record {
     let result = parser.parse_crate_mod();
 
     let mut record: Record = Record {
+        types: HashSet::new(),
+        impls: HashMap::new(),
         caller: HashSet::new(),
         called: HashSet::new(),
         callee: HashSet::new(),

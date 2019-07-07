@@ -22,6 +22,10 @@ output: src_main.svg
 - [ ]  Context of variable/type/crate
     - [ ] `let a:A;  a.f();` => `A::f()`
     - [ ] subgraph for type system
+- [ ]  Generics
+  - [ ] generic function
+  - [ ] generic type
+  - [ ] generic impl
 - [ ]  Macro analysis
 - [ ]  Ignorelist
 
