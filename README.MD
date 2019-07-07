@@ -15,15 +15,26 @@ output: src_main.svg
 ## Fixme
 - [ ] Fail parsing `use crate::something;`
 - [ ] Fail parsing `use std::io::{prelude::*, BufReader};`
-
+- [ ] Derivation at the very least. eg 
+    `fn func<F>(arg: F){ arg(p); }`, the correct result should be `F(p)` instead of `arg(p)`.
+    
 
 ## Todolist
 - [ ]  UFCS
 - [ ]  Context of variable/type/crate
     - [ ] `let a:A;  a.f();` => `A::f()`
-    - [ ] subgraph for type system
+    - [x] ~~subgraph for type system~~
+    - [ ] if `callee` couldn't be found inside `callers`, analysis it.
+- [ ]  Generics
+  - [ ] generic function
+  - [ ] generic type
+  - [ ] generic impl
 - [ ]  Macro analysis
 - [ ]  Ignorelist
+
+
+## Note
+- [ ] Declare `enum Enum{ E1(T); }` and then use it like `e = Enum::E1(t)`, should it be considered as a function call?
 
 
 ## Current Result
