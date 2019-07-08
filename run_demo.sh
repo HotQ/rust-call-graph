@@ -13,7 +13,7 @@ else
     OUT=output1.svg
 fi
 
-RUST_LOG=hello_world=trace cargo run ${IN} 2>debug.log
+RUST_LOG=call_graph=trace cargo run ${IN} 2>debug.log
 echo "input:  ${IN}" 
 echo "dot:    output.dot"
 echo "debug:  debug.log"

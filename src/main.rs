@@ -376,7 +376,7 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
         }
         // ExprKind::Closure(CaptureBy, IsAsync, Movability, fn_decl, expr, Span) => {}
         ExprKind::Block(block) => {
-            trace!("[Block]:");
+            trace!("[Block]:"); // TODO: check here, i feel somthing.
             for stat in &block.stmts {
                 handle_stmt(record, caller, &stat);
             }
@@ -384,10 +384,12 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
         }
         // ExprKind::Async(CaptureBy, NodeId, block) => {}
         // ExprKind::Await(AwaitOrigin, expr) => {}
-        // ExprKind::TryBlock(block) => {}
-        // ExprKind::Assign(expr1, expr2) => {}
+        ExprKind::Assign(lhs, rhs) => {
+            trace!("[Assign ]");
+            handle_expr(record, caller, rhs);
+        }
         ExprKind::AssignOp(bin_op, lhs, rhs) => {
-            trace!("[AssignOp]:{:?}",bin_op);
+            trace!("[AssignOp]:{:?}", bin_op);
             handle_expr(record, caller, rhs);
         }
         // ExprKind::Field(expr, Ident) => {}
@@ -402,7 +404,12 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
         }
         // ExprKind::Break(o_lable, o_expr) => {}
         // ExprKind::Continue(o_lable) => {}
-        // ExprKind::Ret(o_expr) => {}
+        ExprKind::Ret(o_expr) => {
+            if let Some(expr) = o_expr {
+                trace!("[Ret  ]: {:?}", expr);
+                handle_expr(record, caller, expr);
+            }
+        }
         // ExprKind::InlineAsm(inlineAsm) => {}
         // ExprKind::Mac(Mac) => {}
         ExprKind::Struct(path, vec_field, o_expr) => {
@@ -432,11 +439,15 @@ struct Record {
     called: HashSet<(Func, Func)>,
     callee: HashSet<Func>,
 }
-fn mangle_type(ty:&Type)->String{
+
+fn mangle_type(ty: &Type) -> String {
     let mut ret = String::from("_ZT");
     for seg in &ty.path {
+        if seg == "{{root}}" {
+            ret.push_str(&format!("4root"));
+        }
         ret.push_str(&format!("{}{}", seg.len(), seg));
-    }  
+    }
     ret.push('E');
     ret
 }
@@ -451,7 +462,11 @@ fn mangle_func(func: &Func) -> String {
         BossKind::None => {}
     }
     for seg in &func.path {
-        ret.push_str(&format!("{}{}", seg.0.len(), seg.0));
+        if seg.0 == "{{root}}" {
+            ret.push_str(&format!("4root"));
+        } else {
+            ret.push_str(&format!("{}{}", seg.0.len(), seg.0));
+        }
     }
     ret.push('E');
     ret
@@ -461,7 +476,11 @@ fn generate_dot(record: &Record) {
     let mut src_dot = String::from("digraph demo{\n\trankdir=LR\n");
 
     for callee in &record.callee {
-        src_dot += &format!("\t{}[label = <{}> shape=box];\n", mangle_func(&callee), callee);
+        src_dot += &format!(
+            "\t{}[label = <{}> shape=box];\n",
+            mangle_func(&callee),
+            callee
+        );
     }
     for caller in &record.caller {
         if let BossKind::Type(ty) = &caller.boss {
@@ -483,18 +502,26 @@ fn generate_dot(record: &Record) {
             );
         }
     }
-    for pair in &record.impls{
-        //(&Type, &std::vec::Vec<Func>)
-        //error!("pair!{:?}",pair);
-        src_dot += &format!("\tsubgraph cluster{}{}\n\tstyle =\"bold\"\n",mangle_type(&pair.0),'{');
-        for func in pair.1{
-            src_dot += &format!("\t\t{};\n",mangle_func(&func));
-        }        
-        src_dot += &format!("\t{}\n",'}');
+
+    // cluster the `impl` block
+    for pair in &record.impls {
+        src_dot += &format!(
+            "\tsubgraph cluster{}{}\n\tstyle =\"bold\"\n",
+            mangle_type(&pair.0),
+            '{'
+        );
+        for func in pair.1 {
+            src_dot += &format!("\t\t{};\n", mangle_func(&func));
+        }
+        src_dot += &format!("\t{}\n", '}');
     }
+
+    // edge: caller -> callee
     for tuple in &record.called {
         src_dot += &format!("\t{}->{};\n", mangle_func(&tuple.0), mangle_func(&tuple.1));
     }
+
+    // end of the graph
     src_dot += "}";
 
     write_to_file(src_dot);

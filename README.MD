@@ -20,17 +20,19 @@ output: src_main.svg
     
 
 ## Todolist
-- [ ]  UFCS
-- [ ]  Context of variable/type/crate
+- [ ] UFCS
+- [ ] Context of variable/type/crate
     - [ ] `let a:A;  a.f();` => `A::f()`
     - [x] ~~subgraph for type system~~
     - [ ] if `callee` couldn't be found inside `callers`, analysis it.
-- [ ]  Generics
+- [ ] TraitRef 
+- [ ] Generics
   - [ ] generic function
   - [ ] generic type
   - [ ] generic impl
-- [ ]  Macro analysis
-- [ ]  Ignorelist
+- [ ] Macro analysis
+- [ ] Ignorelist
+- [ ] Nested function
 
 
 ## Note

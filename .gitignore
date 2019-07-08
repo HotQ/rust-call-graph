@@ -3,6 +3,9 @@ target/
 Cargo.lock
 
 *.exe
+*.out
 *.log
 *.dot
+
 *tmp.rs
+*tmp.svg
