@@ -14,17 +14,17 @@ use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::{env, fmt, fs};
 
 extern crate syntex_syntax as syntax;
 
+use syntax::ast::{Expr, ExprKind, ImplItemKind, Item, ItemKind, Stmt, StmtKind, TyKind};
 use syntax::codemap::{CodeMap, FilePathMapping};
 use syntax::parse::{self, ParseSess};
 use syntax::print::pprust;
 use syntax::tokenstream::TokenStream;
-use syntex_syntax::ast::{Expr, ExprKind, Item, ItemKind, Stmt, StmtKind, TyKind};
 
 fn type_name<T>(_arg: &T) -> String {
     unsafe { String::from(std::intrinsics::type_name::<T>()) }
@@ -50,23 +50,50 @@ fn ident2string(id: &syntex_pos::symbol::Ident) -> String {
     str_id
 }
 
-#[derive(Hash, Eq, PartialEq)]
+type Path = Vec<String>;
+type PathEx = Vec<(
+    String,
+    Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
+)>;
+
+#[derive(Hash, Eq, PartialEq, Clone)]
 struct Type {
-    path: Vec<(
-        String,
-        Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
-    )>,
+    path: Path,
 }
+
+#[derive(Hash, Eq, PartialEq, Clone)]
+enum BossKind {
+    Type(Type),
+    None,
+}
+
 #[derive(Hash, Eq, PartialEq)]
 struct Func {
-    path: Vec<(
-        String,
-        Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
-    )>,
+    boss: BossKind,
+    path: PathEx,
 }
+
+impl Type {
+    fn to_str(&self) -> String {
+        let mut ret = self.path[0].clone();
+        let mut is_1st = true;
+        for seg in &self.path {
+            if is_1st {
+                is_1st = false;
+                continue;
+            }
+            ret.push_str(&format!("::{}", seg));
+        }
+        ret
+    }
+}
+
 impl Clone for Func {
     fn clone(&self) -> Self {
-        let mut f = Func { path: Vec::new() };
+        let mut f = Func {
+            boss: self.boss.clone(),
+            path: Vec::new(),
+        };
         for seg in &self.path {
             f.path.push(seg.clone());
         }
@@ -89,14 +116,39 @@ impl fmt::Display for Func {
                 continue;
             }
             tmp.push_str(&format!("::{}", seg.0));
-            match seg.1 {
-                _ => {
-                    error!("xcxcxcxcxcxcxc : {:?}", seg.1);
-                }
+            if let Some(para) = &seg.1 {
+                error!("xcxcxcxcxcxcxc : {:?}", para);
             }
         }
         write!(f, "{}()", tmp)
     }
+}
+
+fn get_path(path: &syntax::ast::Path) -> Path {
+    trace!("get_path: {}", pprust::path_to_string(&path));
+    let mut ret = Vec::new();
+    for segment in &path.segments {
+        let path_name = ident2string(&segment.identifier);
+        ret.push(path_name);
+    }
+    trace!("path: {:?}", ret);
+    ret
+}
+
+fn get_pathex(path: &syntax::ast::Path) -> PathEx {
+    trace!("get_pathex: {}", pprust::path_to_string(&path));
+    let mut ret = Vec::new();
+    for segment in &path.segments {
+        let path_name = ident2string(&segment.identifier);
+        if let Some(para) = &segment.parameters {
+            // trace!("segment: {:?}", para);
+            // trace!("segmenty: {}", type_name(&para));
+        }
+        // trace!("seg ID : {}", path_name);
+        ret.push((path_name, segment.parameters.clone()));
+    }
+    trace!("path: {:?}", ret);
+    ret
 }
 
 fn handle_item(record: &mut Record, item: &Item) {
@@ -109,6 +161,7 @@ fn handle_item(record: &mut Record, item: &Item) {
     match &item.node {
         ItemKind::Fn(p_fn_decl, unsafety, constness, abi, rgenerics, p_block) => {
             let f = Func {
+                boss: BossKind::None,
                 path: vec![(id.clone(), None)],
             };
             record.caller.insert(f.clone());
@@ -137,29 +190,39 @@ fn handle_item(record: &mut Record, item: &Item) {
             info!("type :\t{:?}", p_ty);
             info!("impl :\t{:?}", vec_implitem);
 
-            match o_trait_ref {
-                Some(trait_ref) => {
-                    let mut f = Func { path: Vec::new() };
-                    for segment in &trait_ref.path.segments {
-                        let func_name = ident2string(&segment.identifier);
-                        trace!("seg ID : {}", func_name);
-                        f.path.push((func_name, segment.parameters.clone()));
-                    }
-                }
-                None => {}
-            }
-
             info!("type kind {:?}", p_ty.node);
             match &p_ty.node {
                 TyKind::Path(_, path) => {
                     trace!("TyKind::Path");
+                    let ty: Type = Type {
+                        path: get_path(&path),
+                    };
+
+                    if !record.impls.contains_key(&ty) {
+                        record.impls.insert(ty.clone(), Vec::new());
+                    }
+
+                    for implitem in vec_implitem {
+                        let id = ident2string(&implitem.ident);
+                        let f = Func {
+                            boss: BossKind::Type(ty.clone()),
+                            path: vec![(id.clone(), None)],
+                        };
+                        record.caller.insert(f.clone());
+                        record.impls.get_mut(&ty).unwrap().push(f.clone());
+                        match &implitem.node {
+                            ImplItemKind::Method(_, block) => {
+                                for stmt in &block.stmts {
+                                    handle_stmt(record, &f, &stmt);
+                                }
+                            }
+                            _ => error!("implitem : {:?}", implitem.node),
+                        }
+                    }
                 }
-                _ => {
-                    error!("Unmatched Type Kind");
-                }
+                _ => error!("Unmatched Type Kind"),
             }
         }
-
         _ => error!("  this ItemKind is not used yet"),
     }
 }
@@ -207,19 +270,10 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
             trace!("【Call 】{} : ", args.len());
             match &func.node {
                 ExprKind::Path(_, path) => {
-                    trace!("{}", pprust::path_to_string(&path));
-                    let func_name = pprust::path_to_string(&path);
-                    let mut f = Func { path: Vec::new() };
-                    for segment in &path.segments {
-                        let func_name = ident2string(&segment.identifier);
-                        if let Some(para) = &segment.parameters {
-                            trace!("segment: {:?}", para);
-                            trace!("segmenty: {}", type_name(&para));
-                        }
-                        trace!("seg ID : {}", func_name);
-                        f.path.push((func_name, segment.parameters.clone()));
-                    }
-                    trace!("f: {:?}", f.path);
+                    let f = Func {
+                        boss: BossKind::None,
+                        path: get_pathex(&path),
+                    };
                     record.callee.insert(f.clone());
                     record.called.insert((caller.clone(), f));
                 }
@@ -332,7 +386,10 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
         // ExprKind::Await(AwaitOrigin, expr) => {}
         // ExprKind::TryBlock(block) => {}
         // ExprKind::Assign(expr1, expr2) => {}
-        // ExprKind::AssignOp(BinOp, expr1, expr2) => {}
+        ExprKind::AssignOp(bin_op, lhs, rhs) => {
+            trace!("[AssignOp]:{:?}",bin_op);
+            handle_expr(record, caller, rhs);
+        }
         // ExprKind::Field(expr, Ident) => {}
         // ExprKind::Index(expr1, expr2) => {}
         // ExprKind::Range(o_expr1, o_expr2, RangeLimits) => {}
@@ -370,16 +427,29 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
 }
 
 struct Record {
-    types: HashSet<Type>,
-    impls: HashMap<Type, Func>,
+    impls: HashMap<Type, Vec<Func>>,
     caller: HashSet<Func>,
     called: HashSet<(Func, Func)>,
     callee: HashSet<Func>,
 }
-
-fn mangling(func: &Func) -> String {
+fn mangle_type(ty:&Type)->String{
+    let mut ret = String::from("_ZT");
+    for seg in &ty.path {
+        ret.push_str(&format!("{}{}", seg.len(), seg));
+    }  
+    ret.push('E');
+    ret
+}
+fn mangle_func(func: &Func) -> String {
     let mut ret = String::from("_ZN");
-
+    match &func.boss {
+        BossKind::Type(ty) => {
+            for seg in &ty.path {
+                ret.push_str(&format!("{}{}", seg.len(), seg));
+            }
+        }
+        BossKind::None => {}
+    }
     for seg in &func.path {
         ret.push_str(&format!("{}{}", seg.0.len(), seg.0));
     }
@@ -391,19 +461,39 @@ fn generate_dot(record: &Record) {
     let mut src_dot = String::from("digraph demo{\n\trankdir=LR\n");
 
     for callee in &record.callee {
-        src_dot += &format!("\t{}[label = <{}> shape=box];\n", mangling(&callee), callee);
+        src_dot += &format!("\t{}[label = <{}> shape=box];\n", mangle_func(&callee), callee);
     }
     for caller in &record.caller {
-        src_dot += &format!(
-            "\t{}[shape = record label = \"{}|{} \"];\n",
-            mangling(&caller),
-            caller,
-            "args..."
-        );
+        if let BossKind::Type(ty) = &caller.boss {
+            src_dot += &format!(
+                "\t{}[shape = record label = \"{}{}|{}{}|{} \"];\n",
+                mangle_func(&caller),
+                "{",
+                ty.to_str(),
+                caller,
+                "}",
+                "args..."
+            );
+        } else {
+            src_dot += &format!(
+                "\t{}[shape = record label = \"{}|{} \"];\n",
+                mangle_func(&caller),
+                caller,
+                "args..."
+            );
+        }
     }
-
+    for pair in &record.impls{
+        //(&Type, &std::vec::Vec<Func>)
+        //error!("pair!{:?}",pair);
+        src_dot += &format!("\tsubgraph cluster{}{}\n\tstyle =\"bold\"\n",mangle_type(&pair.0),'{');
+        for func in pair.1{
+            src_dot += &format!("\t\t{};\n",mangle_func(&func));
+        }        
+        src_dot += &format!("\t{}\n",'}');
+    }
     for tuple in &record.called {
-        src_dot += &format!("\t{}->{};\n", mangling(&tuple.0), mangling(&tuple.1));
+        src_dot += &format!("\t{}->{};\n", mangle_func(&tuple.0), mangle_func(&tuple.1));
     }
     src_dot += "}";
 
@@ -424,7 +514,6 @@ fn gen_callgraph(contents: &String) -> Record {
     let result = parser.parse_crate_mod();
 
     let mut record: Record = Record {
-        types: HashSet::new(),
         impls: HashMap::new(),
         caller: HashSet::new(),
         called: HashSet::new(),
