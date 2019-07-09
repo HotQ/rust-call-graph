@@ -2,6 +2,15 @@
 
 Static analysis(use `syntex_syntax`) to generate Rust codes' callgraph.
 
+- [Rust Call Graph](#Rust-Call-Graph)
+  - [Run Demo](#Run-Demo)
+  - [Current Work](#Current-Work)
+    - [Fixme](#Fixme)
+    - [Todolist](#Todolist)
+    - [Note](#Note)
+  - [Current Result](#Current-Result)
+    - [Legend](#Legend)
+
 
 ## Run Demo
 ```sh
@@ -11,15 +20,15 @@ dot:    output.dot
 debug:  debug.log
 output: src_main.svg
 ```
-
-## Fixme
+## Current Work
+### Fixme
 - [ ] Fail parsing `use crate::something;`
 - [ ] Fail parsing `use std::io::{prelude::*, BufReader};`
 - [ ] Derivation at the very least. eg 
     `fn func<F>(arg: F){ arg(p); }`, the correct result should be `F(p)` instead of `arg(p)`.
     
 
-## Todolist
+### Todolist
 - [ ] UFCS
 - [ ] Context of variable/type/crate
     - [ ] `let a:A;  a.f();` => `A::f()`
@@ -33,11 +42,14 @@ output: src_main.svg
 - [ ] Macro analysis
 - [ ] Ignorelist
 - [ ] Nested function
+- [x] ~~Ret(Args..)~~
 
-
-## Note
+### Note
 - [ ] Declare `enum Enum{ E1(T); }` and then use it like `e = Enum::E1(t)`, should it be considered as a function call?
 
 
 ## Current Result
-![Alt text](./README.svg)
+![](./README.svg)
+
+### Legend
+![](./LEGEND.svg)
