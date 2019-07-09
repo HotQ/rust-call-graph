@@ -71,6 +71,7 @@ enum BossKind {
 struct Func {
     boss: BossKind,
     path: PathEx,
+    decl: Option<syntax::ast::FnDecl>,
 }
 
 impl Type {
@@ -93,6 +94,7 @@ impl Clone for Func {
         let mut f = Func {
             boss: self.boss.clone(),
             path: Vec::new(),
+            decl: self.decl.clone(),
         };
         for seg in &self.path {
             f.path.push(seg.clone());
@@ -163,6 +165,7 @@ fn handle_item(record: &mut Record, item: &Item) {
             let f = Func {
                 boss: BossKind::None,
                 path: vec![(id.clone(), None)],
+                decl: Some((**p_fn_decl).clone()),
             };
             record.caller.insert(f.clone());
 
@@ -180,7 +183,7 @@ fn handle_item(record: &mut Record, item: &Item) {
             p_ty,
             vec_implitem,
         ) => {
-            warn!("Target locked!!!!!!!!!!!!!!!!!!!");
+            info!("ItemKind::Impl {:?} {:?}", p_ty, o_trait_ref);
             info!("{:?}", item.node);
             info!("{:?}", unsafety);
             info!("{:?}", impl_polarity);
@@ -191,39 +194,39 @@ fn handle_item(record: &mut Record, item: &Item) {
             info!("impl :\t{:?}", vec_implitem);
 
             info!("type kind {:?}", p_ty.node);
-            match &p_ty.node {
-                TyKind::Path(_, path) => {
-                    trace!("TyKind::Path");
-                    let ty: Type = Type {
-                        path: get_path(&path),
-                    };
+            if let TyKind::Path(_, path) = &p_ty.node {
+                trace!("TyKind::Path");
+                let ty: Type = Type {
+                    path: get_path(&path),
+                };
 
-                    if !record.impls.contains_key(&ty) {
-                        record.impls.insert(ty.clone(), Vec::new());
-                    }
+                if !record.impls.contains_key(&ty) {
+                    record.impls.insert(ty.clone(), Vec::new());
+                }
 
-                    for implitem in vec_implitem {
-                        let id = ident2string(&implitem.ident);
-                        let f = Func {
-                            boss: BossKind::Type(ty.clone()),
-                            path: vec![(id.clone(), None)],
-                        };
-                        record.caller.insert(f.clone());
-                        record.impls.get_mut(&ty).unwrap().push(f.clone());
-                        match &implitem.node {
-                            ImplItemKind::Method(_, block) => {
-                                for stmt in &block.stmts {
-                                    handle_stmt(record, &f, &stmt);
-                                }
+                for implitem in vec_implitem {
+                    match &implitem.node {
+                        ImplItemKind::Method(sig, block) => {
+                            let id = ident2string(&implitem.ident);
+                            let f = Func {
+                                boss: BossKind::Type(ty.clone()),
+                                path: vec![(id.clone(), None)],
+                                decl: Some((*sig.decl).clone()),
+                            };
+                            record.caller.insert(f.clone());
+                            record.impls.get_mut(&ty).unwrap().push(f.clone());
+                            for stmt in &block.stmts {
+                                handle_stmt(record, &f, &stmt);
                             }
-                            _ => error!("implitem : {:?}", implitem.node),
                         }
+                        _ => error!("implitem : {:?}", implitem.node),
                     }
                 }
-                _ => error!("Unmatched Type Kind"),
+            } else {
+                error!("Unmatched Type Kind");
             }
         }
-        _ => error!("  this ItemKind is not used yet"),
+        _ => {} // error!("  this ItemKind is not used yet"),
     }
 }
 
@@ -247,7 +250,6 @@ fn handle_stmt(record: &mut Record, caller: &Func, stmt: &Stmt) {
         }
         StmtKind::Mac(mac) => {
             info!("Mac!  {:?}\n{:?}", mac.0.node.path, mac.0.node.tts);
-            info!("\t{}", type_names!(mac.0.node.tts));
         }
     };
 }
@@ -273,6 +275,7 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
                     let f = Func {
                         boss: BossKind::None,
                         path: get_pathex(&path),
+                        decl: None,
                     };
                     record.callee.insert(f.clone());
                     record.called.insert((caller.clone(), f));
@@ -471,44 +474,50 @@ fn mangle_func(func: &Func) -> String {
     ret.push('E');
     ret
 }
-
+fn decl_dot(decl: &syntax::ast::FnDecl) -> String {
+    let mut ret = String::from("");
+    ret = ret
+        + "\n\t\t| "
+        + &match &decl.output {
+            syntax::ast::FunctionRetTy::Default(_) => String::from(" "),
+            syntax::ast::FunctionRetTy::Ty(ty) => {
+                (&pprust::ty_to_string(&ty)).replace("&", "&amp;")
+            }
+        };
+    for input in &decl.inputs {
+        ret = ret + "\n\t\t| " + &(&pprust::ty_to_string(&input.ty)).replace("&", "&amp;");
+    }
+    ret
+}
 fn generate_dot(record: &Record) {
     let mut src_dot = String::from("digraph demo{\n\trankdir=LR\n");
 
     for callee in &record.callee {
         src_dot += &format!(
-            "\t{}[label = <{}> shape=box];\n",
+            "\t{}[shape = record label = <<B>{}</B>>];\n",
             mangle_func(&callee),
             callee
         );
     }
     for caller in &record.caller {
-        if let BossKind::Type(ty) = &caller.boss {
-            src_dot += &format!(
-                "\t{}[shape = record label = \"{}{}|{}{}|{} \"];\n",
-                mangle_func(&caller),
-                "{",
-                ty.to_str(),
-                caller,
-                "}",
-                "args..."
-            );
-        } else {
-            src_dot += &format!(
-                "\t{}[shape = record label = \"{}|{} \"];\n",
-                mangle_func(&caller),
-                caller,
-                "args..."
-            );
-        }
+        src_dot += &format!(
+            "\t{}[shape = record label = <<B> {} </B>{}>];\n",
+            mangle_func(&caller),
+            caller,
+            decl_dot(&(caller.decl.clone().unwrap())),
+        );
     }
 
     // cluster the `impl` block
     for pair in &record.impls {
         src_dot += &format!(
-            "\tsubgraph cluster{}{}\n\tstyle =\"bold\"\n",
+            "\tsubgraph cluster{} {}\n\
+             \t\tstyle = \"bold\"\n\
+             \t\t{}[shape = none, label = \"{}\"]\n",
             mangle_type(&pair.0),
-            '{'
+            '{',
+            mangle_type(&pair.0),
+            pair.0.to_str()
         );
         for func in pair.1 {
             src_dot += &format!("\t\t{};\n", mangle_func(&func));
