@@ -9,6 +9,8 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
+mod utils;
+
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -25,25 +27,6 @@ use syntax::codemap::{CodeMap, FilePathMapping};
 use syntax::parse::{self, ParseSess};
 use syntax::print::pprust;
 use syntax::tokenstream::TokenStream;
-
-fn type_name<T>(_arg: &T) -> String {
-    unsafe { String::from(std::intrinsics::type_name::<T>()) }
-}
-
-macro_rules! type_names{
-    ($($var:expr),*)=>{
-        {
-            let mut s =String::from("");
-            let mut is_1st = true;
-            $(
-                if is_1st == false {s.push('\n');}
-                else{is_1st = false;}
-                s += &type_name(&$var);
-            )*
-            s
-        }
-    }
-}
 
 fn ident2string(id: &syntex_pos::symbol::Ident) -> String {
     let str_id = String::from(&*id.name.as_str());
@@ -144,7 +127,7 @@ fn get_pathex(path: &syntax::ast::Path) -> PathEx {
         let path_name = ident2string(&segment.identifier);
         if let Some(para) = &segment.parameters {
             // trace!("segment: {:?}", para);
-            // trace!("segmenty: {}", type_name(&para));
+            // trace!("segmenty: {}", utils::type_name(&para));
         }
         // trace!("seg ID : {}", path_name);
         ret.push((path_name, segment.parameters.clone()));
@@ -281,7 +264,7 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
                     record.called.insert((caller.clone(), f));
                 }
                 _ => {
-                    warn!("Something Wrong Happened{}", type_name(&**func));
+                    warn!("Something Wrong Happened{}", utils::type_name(&**func));
                 }
             }
             for expr in args {
