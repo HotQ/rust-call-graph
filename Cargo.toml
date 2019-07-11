@@ -7,8 +7,15 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-syntex_syntax = "0.59.1"
-syntex_pos = "0.59.1"
+# syntex_syntax = "0.59.1"
+# syntex_pos = "0.59.1"
 pretty_env_logger = "0.3.0"
 log = "0.4.6"
+quote = "0.6"
+
+[dependencies.syn]
+version = "0.15"
+# default-features = true
+# extra-traits = true
+features = ["full", "printing", "parsing", "extra-traits"]
 
