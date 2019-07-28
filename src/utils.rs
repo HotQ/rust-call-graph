@@ -17,3 +17,23 @@ macro_rules! type_names{
         }
     }
 }
+
+#[macro_export]
+macro_rules! is_exist{
+    ( $src:expr, $( $x:expr ),+ ) => {
+        {
+            let mut ret = false;
+            $(if $src==$x {ret = true;})*
+            ret
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! html_escape {
+    ( $src:expr) => {
+        $src.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+    };
+}

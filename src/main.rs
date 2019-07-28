@@ -463,12 +463,10 @@ fn decl_dot(decl: &syntax::ast::FnDecl) -> String {
         + "\n\t\t| "
         + &match &decl.output {
             syntax::ast::FunctionRetTy::Default(_) => String::from(" "),
-            syntax::ast::FunctionRetTy::Ty(ty) => {
-                (&pprust::ty_to_string(&ty)).replace("&", "&amp;")
-            }
+            syntax::ast::FunctionRetTy::Ty(ty) => html_escape!((&pprust::ty_to_string(&ty))),
         };
     for input in &decl.inputs {
-        ret = ret + "\n\t\t| " + &(&pprust::ty_to_string(&input.ty)).replace("&", "&amp;");
+        ret = ret + "\n\t\t| " + &html_escape!((&pprust::ty_to_string(&input.ty)));
     }
     ret
 }
@@ -510,6 +508,9 @@ fn generate_dot(record: &Record) {
 
     // edge: caller -> callee
     for tuple in &record.called {
+        if is_exist!(format!("{}", tuple.1), "Ok()", "Some()") {
+            continue;
+        }
         src_dot += &format!("\t{}->{};\n", mangle_func(&tuple.0), mangle_func(&tuple.1));
     }
 
