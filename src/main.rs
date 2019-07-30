@@ -508,7 +508,7 @@ fn generate_dot(record: &Record) {
 
     // edge: caller -> callee
     for tuple in &record.called {
-        if is_exist!(format!("{}", tuple.1), "Ok()", "Some()") {
+        if is_exist!(format!("{}", tuple.1), "Ok()", "Some()","drop()") {
             continue;
         }
         src_dot += &format!("\t{}->{};\n", mangle_func(&tuple.0), mangle_func(&tuple.1));

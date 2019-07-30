@@ -2,14 +2,14 @@
 
 Static analysis(use `syntex_syntax`) to generate Rust codes' callgraph.
 
-- [Rust Call Graph](#Rust-Call-Graph)
-  - [Run Demo](#Run-Demo)
-  - [Current Work](#Current-Work)
-    - [Fixme](#Fixme)
-    - [Todolist](#Todolist)
-    - [Note](#Note)
-  - [Current Result](#Current-Result)
-    - [Legend](#Legend)
+- [Rust Call Graph](#rust-call-graph)
+  - [Run Demo](#run-demo)
+  - [Current Work](#current-work)
+    - [Fixme](#fixme)
+    - [Todolist](#todolist)
+    - [Note](#note)
+  - [Current Result](#current-result)
+    - [Legend](#legend)
 
 
 ## Run Demo
@@ -34,15 +34,18 @@ output: src_main.svg
     - [ ] `let a:A;  a.f();` => `A::f()`
     - [x] ~~subgraph for type system~~
     - [ ] if `callee` couldn't be found inside `callers`, analysis it.
+      - [ ] But how? 
 - [ ] TraitRef 
 - [ ] Generics
   - [ ] generic function
   - [ ] generic type
   - [ ] generic impl
 - [ ] Macro analysis
-- [ ] Ignorelist
+- [x] ~~Ignorelist~~
+  - [ ] Persistence
 - [ ] Nested function
 - [x] ~~Ret(Args..)~~
+- [ ] MutiFile
 
 ### Note
 - [ ] Declare `enum Enum{ E1(T); }` and then use it like `e = Enum::E1(t)`, should it be considered as a function call?
