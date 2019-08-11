@@ -17,3 +17,31 @@ macro_rules! type_names{
         }
     }
 }
+
+#[macro_export]
+macro_rules! NeverConsidered{
+    ($($str:path),* , $([ $in1:expr,$in2:expr ]),*) => {
+        {
+            let info = brk!("Never considered!  ",$($str),*).to_string();
+            $(
+                if !$in2($in1){
+                    error!("{} {}:{} | {} => {:#?}",info, file!(), line!(), stringify!($in1), $in1);
+                }
+            )*
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! brk{ // i already forget why i name this macro like this.....
+    ($type:expr, $($str:expr),*) => {
+        concat!($type,$(concat!("[",stringify!($str)),"]"),*)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_all {
+    ($info:expr,$($arg:expr),+) => {
+        trace!( concat!(stringify!($info), concat!($(concat!("\n\t\t\t\t\t",stringify!($arg) ," {:?}"),)+ )), $($arg),+)
+    };
+}

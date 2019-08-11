@@ -10,8 +10,11 @@ extern crate pretty_env_logger;
 extern crate log;
 extern crate syn;
 
+#[macro_use]
+pub mod utils;
+pub mod signature;
+
 use self::utils::*;
-mod utils;
 
 use std::fs::File;
 use std::io;
@@ -37,16 +40,16 @@ use std::{env, fmt, fs};
 //     str_id
 // }
 
-type Path = Vec<String>;
+// type Path = Vec<String>;
 // type PathEx = Vec<(
 //     String,
 //     Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
 // )>;
 
-#[derive(Hash, Eq, PartialEq, Clone)]
-struct Type {
-    path: Path,
-}
+// #[derive(Hash, Eq, PartialEq, Clone)]
+// struct Type {
+//     path: Path,
+// }
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 enum BossKind {
@@ -65,7 +68,7 @@ enum BossKind {
 struct Func {
     boss: BossKind,
     path: Path,
-    decl: Option<syn::item::FnArg>,
+    decl: FnDecl, //Option<syn::FnArg>,
 }
 
 // impl Type {
@@ -147,6 +150,13 @@ struct Func {
 //     ret
 // }
 //fn id2str()
+
+macro_rules! debug_all {
+    ($info:expr,$($arg:expr),+) => {
+        trace!( concat!(stringify!($info), concat!($(concat!("\n",stringify!($arg) ,": {:#?}"),)+ )), $($arg),+)
+    };
+}
+use signature::*;
 fn handle_item(record: &mut Record, item: &Item) {
     match item {
         Item::Fn(ItemFn {
@@ -160,11 +170,47 @@ fn handle_item(record: &mut Record, item: &Item) {
             decl,
             block,
         }) => {
-            let id = format!("{}",ident).to_owned();
-            trace!("Fn {}",id);
-            trace!("\tdecl {} {:#?}",type_name(&decl.inputs), decl);
+            let id = format!("{}", ident).to_owned();
+            trace!("======= vis: {:#?}\tFn {}()", vis, id);
+
+            debug_all!(handle_item_fn, vis, ident);
+            NeverConsidered!(
+                handle_item,
+                Fn,
+                [attrs, |x: &Vec<Attribute>| x.len() == 0],
+                [constness, |x: &Option<Token![const]>| *x == None],
+                [asyncness, |x: &Option<Token![async]>| *x == None],
+                [unsafety, |x: &Option<Token![unsafe]>| *x == None],
+                [abi, |x: &Option<Abi>| *x == None]
+            );
+
+            //         pub struct FnDecl {
+            //     pub fn_token: Token![fn],
+            //     pub generics: Generics,
+            //     pub paren_token: token::Paren,
+            //     pub inputs: Punctuated<FnArg, Token![,]>,
+            //     pub variadic: Option<Token![...]>,
+            //     pub output: ReturnType,
+            // }
+
+            if id == "demo" {
+                info!("let analysis demo()!");
+                debug_all!(handle_item_decl, decl.inputs, decl.output);
+            }
+            match &decl.output {
+                ReturnType::Default => info!("decl_inputs default"),
+                ReturnType::Type(_, ty) => info!("decl_inputs {}", type_to_string(ty)),
+            }
+
+            // error!("type name: {}",type_name(&decl));
+            for stmt in &block.stmts {
+                handle_stmt(record, stmt);
+            }
         }
-        _ => error!("  this ItemKind is not used yet"),
+        _ => {
+            // error!("this ItemKind is not used yet");
+            // error!("ItemKind {:?}", item);
+        }
     }
     //     let id = ident2string(&item.ident);
     //     info!(
@@ -242,212 +288,463 @@ fn handle_item(record: &mut Record, item: &Item) {
     //     }
 }
 
-// fn handle_stmt(record: &mut Record, caller: &Func, stmt: &Stmt) {
-//     info!("StmtKind :");
-//     match &stmt.node {
-//         StmtKind::Local(expr) => {
-//             info!("Local");
-//             handle_expr(record, caller, &expr.init.as_ref().unwrap());
-//         }
-//         StmtKind::Item(expr) => {
-//             info!("[FATAL ]:It's a trap!!! {:?}", expr);
-//         }
-//         StmtKind::Expr(expr) => {
-//             info!("expr!");
-//             handle_expr(record, caller, &expr);
-//         }
-//         StmtKind::Semi(expr) => {
-//             info!("Semi!");
-//             handle_expr(record, caller, &expr);
-//         }
-//         StmtKind::Mac(mac) => {
-//             info!("Mac!  {:?}\n{:?}", mac.0.node.path, mac.0.node.tts);
-//         }
-//     };
-// }
+fn handle_type(ty: Type) {}
 
-// fn handle_expr(record: &mut Record, caller: &Func, expr: &syntax::ast::Expr) {
-//     let node = &expr.node;
+fn handle_stmt(record: &mut Record, stmt: &syn::Stmt) {
+    // info!("stmt: {:#?}", stmt);
+    //     info!("StmtKind :");
+    match stmt {
+        syn::Stmt::Local(local) => {
+            // info!("handle_stmt Local");
+            // handle_expr(record, caller, &expr.init.as_ref().unwrap());
+        }
+        syn::Stmt::Item(item) => {
+            // info!("handle_stmt [FATAL ]:It's a trap!!! {:?}", item);
+        }
+        syn::Stmt::Expr(expr) => {
+            info!("handle_stmt expr!");
+            // warn!("{}",type_name(&expr));
+            handle_expr(record, &expr);
 
-//     match node {
-//         ExprKind::Box(expr) => {
-//             trace!("[Box ]");
-//             handle_expr(record, caller, expr);
-//         }
-//         ExprKind::Array(vec_expr) => {
-//             trace!("[Array ]");
-//             for expr in vec_expr {
-//                 handle_expr(record, caller, expr);
-//             }
-//         }
-//         ExprKind::Call(func, args) => {
-//             trace!("【Call 】{} : ", args.len());
-//             match &func.node {
-//                 ExprKind::Path(_, path) => {
-//                     let f = Func {
-//                         boss: BossKind::None,
-//                         path: get_pathex(&path),
-//                         decl: None,
-//                     };
-//                     record.callee.insert(f.clone());
-//                     record.called.insert((caller.clone(), f));
-//                 }
-//                 _ => {
-//                     warn!("Something Wrong Happened{}", utils::type_name(&**func));
-//                 }
-//             }
-//             for expr in args {
-//                 handle_expr(record, caller, expr);
-//             }
-//             trace!("【/Call 】");
-//         }
-//         ExprKind::MethodCall(span, vec_ty, vec_expr) => {
-//             trace!("【MCall 】{:?} : ", ident2string(&span.node));
-//             for expr in vec_expr {
-//                 handle_expr(record, caller, expr);
-//             }
-//         }
-//         ExprKind::Tup(vec_expr) => {
-//             trace!("[Tup  ]");
-//             for expr in vec_expr {
-//                 handle_expr(record, caller, expr);
-//             }
-//         }
-//         ExprKind::Binary(binop, lhs, rhs) => {
-//             trace!("[Binary]");
-//             handle_expr(record, caller, lhs);
-//             handle_expr(record, caller, rhs);
-//         }
-//         ExprKind::Unary(un_op, expr) => {
-//             trace!("[Unary ]");
-//             handle_expr(record, caller, expr);
-//         }
-//         ExprKind::IfLet(_pat, expr, block, label) => {
-//             trace!("[IfLet  ]");
-//             handle_expr(record, caller, expr);
-//             for stmt in &block.stmts {
-//                 handle_stmt(record, caller, &stmt);
-//             }
-//         }
-//         ExprKind::Lit(lit) => trace!("[Lit   ]: {:?}", lit.node),
-//         ExprKind::If(expr, block, eelse) => {
-//             trace!("[If!  ]");
-//             handle_expr(record, caller, expr);
-//             for stmt in &block.stmts {
-//                 handle_stmt(record, caller, &stmt);
-//             }
-//             if let Some(expr) = eelse {
-//                 trace!("[else ]");
-//                 handle_expr(record, caller, expr);
-//             }
-//         }
-//         ExprKind::Cast(expr, _ty) => {
-//             trace!("[Cast  ]");
-//             handle_expr(record, caller, expr);
-//         }
-//         // ExprKind::Type(expr, P<Ty>)=>{}
-//         ExprKind::While(expr, block, o_lable) => {
-//             trace!("[While ]");
-//             handle_expr(record, caller, expr);
-//             for stmt in &block.stmts {
-//                 handle_stmt(record, caller, &stmt);
-//             }
-//             if let Some(lable) = o_lable {
-//                 warn!("[lable!!!!! ] {:?}", lable);
-//             }
-//         }
-//         ExprKind::ForLoop(_pat, expr, block, o_lable) => {
-//             trace!(
-//                 "[ForLoop] {:?}\n{:?}\n{:?}\n{:?}\n{:?}",
-//                 node,
-//                 _pat,
-//                 expr,
-//                 block,
-//                 o_lable
-//             );
-//             handle_expr(record, caller, expr);
-//             for stmt in &block.stmts {
-//                 handle_stmt(record, caller, &stmt);
-//             }
-//             if let Some(lable) = o_lable {
-//                 warn!("[lable!!!!! ] {:?}", lable);
-//             }
-//         }
-//         ExprKind::Loop(block, o_lable) => {
-//             for stmt in &block.stmts {
-//                 handle_stmt(record, caller, &stmt);
-//             }
-//             if let Some(lable) = o_lable {
-//                 warn!("[lable!!!!! ] {:?}", lable);
-//             }
-//         }
-//         ExprKind::Match(expr, vec_arm) => {
-//             trace!("[Match]:");
-//             handle_expr(record, caller, expr);
-//             for arm in vec_arm {
-//                 trace!("arm: {:?}   ", arm.body);
-//                 handle_expr(record, caller, &arm.body);
-//             }
-//         }
-//         // ExprKind::Closure(CaptureBy, IsAsync, Movability, fn_decl, expr, Span) => {}
-//         ExprKind::Block(block) => {
-//             trace!("[Block]:"); // TODO: check here, i feel somthing.
-//             for stat in &block.stmts {
-//                 handle_stmt(record, caller, &stat);
-//             }
-//             trace!("[/Block]:");
-//         }
-//         // ExprKind::Async(CaptureBy, NodeId, block) => {}
-//         // ExprKind::Await(AwaitOrigin, expr) => {}
-//         ExprKind::Assign(lhs, rhs) => {
-//             trace!("[Assign ]");
-//             handle_expr(record, caller, rhs);
-//         }
-//         ExprKind::AssignOp(bin_op, lhs, rhs) => {
-//             trace!("[AssignOp]:{:?}", bin_op);
-//             handle_expr(record, caller, rhs);
-//         }
-//         // ExprKind::Field(expr, Ident) => {}
-//         // ExprKind::Index(expr1, expr2) => {}
-//         // ExprKind::Range(o_expr1, o_expr2, RangeLimits) => {}
-//         ExprKind::Path(_, path) => {
-//             trace!("[Path   ]: {:?}", pprust::path_to_string(path));
-//         }
-//         ExprKind::AddrOf(_, expr) => {
-//             trace!("[AddrOf]: {:?}", expr);
-//             handle_expr(record, caller, expr);
-//         }
-//         // ExprKind::Break(o_lable, o_expr) => {}
-//         // ExprKind::Continue(o_lable) => {}
-//         ExprKind::Ret(o_expr) => {
-//             if let Some(expr) = o_expr {
-//                 trace!("[Ret  ]: {:?}", expr);
-//                 handle_expr(record, caller, expr);
-//             }
-//         }
-//         // ExprKind::InlineAsm(inlineAsm) => {}
-//         // ExprKind::Mac(Mac) => {}
-//         ExprKind::Struct(path, vec_field, o_expr) => {
-//             trace!("[Struct ]:");
-//             for field in vec_field {
-//                 handle_expr(record, caller, &field.expr);
-//             }
-//             if let Some(e) = o_expr {
-//                 trace!("something magical happend! {:?}", e);
-//             }
-//         }
-//         // ExprKind::Repeat(expr, AnonConst) => {}
-//         // ExprKind::Paren(expr) => {}
-//         ExprKind::Try(expr) => {
-//             trace!("[Try   ]:");
-//             handle_expr(record, caller, expr);
-//         }
-//         // ExprKind::Yield(o_expr) => {}
-//         // ExprKind::Err,
-//         _ => trace!("[______]: {:?}", node),
-//     }
-// }
+            // handle_expr(record, caller, &expr);
+        }
+        syn::Stmt::Semi(expr, t) => {
+            // info!("handle_stmt Semi!");
+            // handle_expr(record, caller, &expr);
+        }
+    };
+}
 
+// fn handle_expr(record: &mut Record, caller: &Func, expr: &syn::expr::Expr) {
+fn handle_expr(record: &mut Record, expr: &syn::Expr) {
+    //     let node = &expr.node;
+    use syn::Expr::*;
+
+    match expr {
+        // /// A box expression: `box f`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Box(ExprBox #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub box_token: Token![box],
+        //     pub expr: Box<Expr>,
+        // }),
+
+        // /// A placement expression: `place <- value`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub InPlace(ExprInPlace #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub place: Box<Expr>,
+        //     pub arrow_token: Token![<-],
+        //     pub value: Box<Expr>,
+        // }),
+
+        // /// A slice literal expression: `[a, b, c, d]`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Array(ExprArray #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub bracket_token: token::Bracket,
+        //     pub elems: Punctuated<Expr, Token![,]>,
+        // }),
+
+        // /// A function call expression: `invoke(a, b)`.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Call(ExprCall {
+        //     pub attrs: Vec<Attribute>,
+        //     pub func: Box<Expr>,
+        //     pub paren_token: token::Paren,
+        //     pub args: Punctuated<Expr, Token![,]>,
+        // }),
+
+        // /// A method call expression: `x.foo::<T>(a, b)`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub MethodCall(ExprMethodCall #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub receiver: Box<Expr>,
+        //     pub dot_token: Token![.],
+        //     pub method: Ident,
+        //     pub turbofish: Option<MethodTurbofish>,
+        //     pub paren_token: token::Paren,
+        //     pub args: Punctuated<Expr, Token![,]>,
+        // }),
+
+        // /// A tuple expression: `(a, b, c, d)`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Tuple(ExprTuple #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub paren_token: token::Paren,
+        //     pub elems: Punctuated<Expr, Token![,]>,
+        // }),
+
+        // /// A binary operation: `a + b`, `a * b`.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Binary(ExprBinary {
+        //     pub attrs: Vec<Attribute>,
+        //     pub left: Box<Expr>,
+        //     pub op: BinOp,
+        //     pub right: Box<Expr>,
+        // }),
+
+        // /// A unary operation: `!x`, `*x`.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Unary(ExprUnary {
+        //     pub attrs: Vec<Attribute>,
+        //     pub op: UnOp,
+        //     pub expr: Box<Expr>,
+        // }),
+
+        // /// A literal in place of an expression: `1`, `"foo"`.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Lit(ExprLit {
+        //     pub attrs: Vec<Attribute>,
+        //     pub lit: Lit,
+        // }),
+
+        // /// A cast expression: `foo as f64`.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Cast(ExprCast {
+        //     pub attrs: Vec<Attribute>,
+        //     pub expr: Box<Expr>,
+        //     pub as_token: Token![as],
+        //     pub ty: Box<Type>,
+        // }),
+
+        // /// A type ascription expression: `foo: f64`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Type(ExprType #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub expr: Box<Expr>,
+        //     pub colon_token: Token![:],
+        //     pub ty: Box<Type>,
+        // }),
+
+        // /// A `let` guard: `let Some(x) = opt`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Let(ExprLet #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub let_token: Token![let],
+        //     pub pats: Punctuated<Pat, Token![|]>,
+        //     pub eq_token: Token![=],
+        //     pub expr: Box<Expr>,
+        // }),
+
+        // /// An `if` expression with an optional `else` block: `if expr { ... }
+        // /// else { ... }`.
+        // ///
+        // /// The `else` branch expression may only be an `If` or `Block`
+        // /// expression, not any of the other types of expression.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub If(ExprIf #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub if_token: Token![if],
+        //     pub cond: Box<Expr>,
+        //     pub then_branch: Block,
+        //     pub else_branch: Option<(Token![else], Box<Expr>)>,
+        // }),
+
+        // /// A while loop: `while expr { ... }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub While(ExprWhile #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub label: Option<Label>,
+        //     pub while_token: Token![while],
+        //     pub cond: Box<Expr>,
+        //     pub body: Block,
+        // }),
+
+        // /// A for loop: `for pat in expr { ... }`.
+        ForLoop(for_loop) => {
+            NeverConsidered!(
+                handle_expr,
+                ForLoop,
+                [&for_loop.attrs, move |x: &Vec<Attribute>| x.len() == 0],
+                [&for_loop.label, move |x: &Option<Label>| *x == None]
+            );
+            // trace!("is a for loop \n{:#?}", for_loop);
+        }
+
+        // /// Conditionless loop: `loop { ... }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Loop(ExprLoop #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub label: Option<Label>,
+        //     pub loop_token: Token![loop],
+        //     pub body: Block,
+        // }),
+
+        // /// A `match` expression: `match n { Some(n) => {}, None => {} }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Match(ExprMatch #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub match_token: Token![match],
+        //     pub expr: Box<Expr>,
+        //     pub brace_token: token::Brace,
+        //     pub arms: Vec<Arm>,
+        // }),
+
+        // /// A closure expression: `|a, b| a + b`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Closure(ExprClosure #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub asyncness: Option<Token![async]>,
+        //     pub movability: Option<Token![static]>,
+        //     pub capture: Option<Token![move]>,
+        //     pub or1_token: Token![|],
+        //     pub inputs: Punctuated<FnArg, Token![,]>,
+        //     pub or2_token: Token![|],
+        //     pub output: ReturnType,
+        //     pub body: Box<Expr>,
+        // }),
+
+        // /// An unsafe block: `unsafe { ... }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Unsafe(ExprUnsafe #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub unsafe_token: Token![unsafe],
+        //     pub block: Block,
+        // }),
+
+        // /// A blocked scope: `{ ... }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Block(ExprBlock #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub label: Option<Label>,
+        //     pub block: Block,
+        // }),
+
+        // /// An assignment expression: `a = compute()`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Assign(ExprAssign #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub left: Box<Expr>,
+        //     pub eq_token: Token![=],
+        //     pub right: Box<Expr>,
+        // }),
+
+        // /// A compound assignment expression: `counter += 1`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub AssignOp(ExprAssignOp #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub left: Box<Expr>,
+        //     pub op: BinOp,
+        //     pub right: Box<Expr>,
+        // }),
+
+        // /// Access of a named struct field (`obj.k`) or unnamed tuple struct
+        // /// field (`obj.0`).
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Field(ExprField {
+        //     pub attrs: Vec<Attribute>,
+        //     pub base: Box<Expr>,
+        //     pub dot_token: Token![.],
+        //     pub member: Member,
+        // }),
+
+        // /// A square bracketed indexing expression: `vector[2]`.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Index(ExprIndex {
+        //     pub attrs: Vec<Attribute>,
+        //     pub expr: Box<Expr>,
+        //     pub bracket_token: token::Bracket,
+        //     pub index: Box<Expr>,
+        // }),
+
+        // /// A range expression: `1..2`, `1..`, `..2`, `1..=2`, `..=2`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Range(ExprRange #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub from: Option<Box<Expr>>,
+        //     pub limits: RangeLimits,
+        //     pub to: Option<Box<Expr>>,
+        // }),
+
+        // /// A path like `std::mem::replace` possibly containing generic
+        // /// parameters and a qualified self-type.
+        // ///
+        // /// A plain identifier like `x` is a path of length 1.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Path(ExprPath {
+        //     pub attrs: Vec<Attribute>,
+        //     pub qself: Option<QSelf>,
+        //     pub path: Path,
+        // }),
+
+        // /// A referencing operation: `&a` or `&mut a`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Reference(ExprReference #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub and_token: Token![&],
+        //     pub mutability: Option<Token![mut]>,
+        //     pub expr: Box<Expr>,
+        // }),
+
+        // /// A `break`, with an optional label to break and an optional
+        // /// expression.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Break(ExprBreak #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub break_token: Token![break],
+        //     pub label: Option<Lifetime>,
+        //     pub expr: Option<Box<Expr>>,
+        // }),
+
+        // /// A `continue`, with an optional label.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Continue(ExprContinue #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub continue_token: Token![continue],
+        //     pub label: Option<Lifetime>,
+        // }),
+
+        // /// A `return`, with an optional value to be returned.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Return(ExprReturn #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub return_token: Token![return],
+        //     pub expr: Option<Box<Expr>>,
+        // }),
+
+        // /// A macro invocation expression: `format!("{}", q)`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Macro(ExprMacro #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub mac: Macro,
+        // }),
+
+        // /// A struct literal expression: `Point { x: 1, y: 1 }`.
+        // ///
+        // /// The `rest` provides the value of the remaining fields as in `S { a:
+        // /// 1, b: 1, ..rest }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Struct(ExprStruct #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub path: Path,
+        //     pub brace_token: token::Brace,
+        //     pub fields: Punctuated<FieldValue, Token![,]>,
+        //     pub dot2_token: Option<Token![..]>,
+        //     pub rest: Option<Box<Expr>>,
+        // }),
+
+        // /// An array literal constructed from one repeated element: `[0u8; N]`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Repeat(ExprRepeat #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub bracket_token: token::Bracket,
+        //     pub expr: Box<Expr>,
+        //     pub semi_token: Token![;],
+        //     pub len: Box<Expr>,
+        // }),
+
+        // /// A parenthesized expression: `(a + b)`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Paren(ExprParen {
+        //     pub attrs: Vec<Attribute>,
+        //     pub paren_token: token::Paren,
+        //     pub expr: Box<Expr>,
+        // }),
+
+        // /// An expression contained within invisible delimiters.
+        // ///
+        // /// This variant is important for faithfully representing the precedence
+        // /// of expressions and is related to `None`-delimited spans in a
+        // /// `TokenStream`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Group(ExprGroup #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub group_token: token::Group,
+        //     pub expr: Box<Expr>,
+        // }),
+
+        // /// A try-expression: `expr?`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Try(ExprTry #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub expr: Box<Expr>,
+        //     pub question_token: Token![?],
+        // }),
+
+        // /// An async block: `async { ... }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Async(ExprAsync #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub async_token: Token![async],
+        //     pub capture: Option<Token![move]>,
+        //     pub block: Block,
+        // }),
+
+        // /// A try block: `try { ... }`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub TryBlock(ExprTryBlock #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub try_token: Token![try],
+        //     pub block: Block,
+        // }),
+
+        // /// A yield expression: `yield expr`.
+        // ///
+        // /// *This type is available if Syn is built with the `"full"` feature.*
+        // pub Yield(ExprYield #full {
+        //     pub attrs: Vec<Attribute>,
+        //     pub yield_token: Token![yield],
+        //     pub expr: Option<Box<Expr>>,
+        // }),
+
+        // /// Tokens in expression position not interpreted by Syn.
+        // ///
+        // /// *This type is available if Syn is built with the `"derive"` or
+        // /// `"full"` feature.*
+        // pub Verbatim(ExprVerbatim #manual_extra_traits {
+        //     pub tts: TokenStream,
+        // }),
+        _ => {} //info!("handle_expr: _"), // debug
+    }
+}
+fn demo(_: u32, _: i32) -> i32 {
+    123
+}
 struct Record {
     impls: HashMap<Type, Vec<Func>>,
     caller: HashSet<Func>,
@@ -575,11 +872,11 @@ struct Record {
 //     }
 //     return record;
 // }
-fn get_file() -> String {
-    let args: Vec<String> = env::args().collect();
-    let filename = args[1].as_str();
-    fs::read_to_string(filename).expect("Something went wrong reading the file")
-}
+// fn get_file() -> String {
+//     let args: Vec<String> = env::args().collect();
+//     let filename = args[1].as_str();
+//     fs::read_to_string(filename).expect("Something went wrong reading the file")
+// }
 
 use syn::*;
 use syn::{parse_macro_input, DeriveInput};
@@ -598,7 +895,7 @@ fn main() {
         called: HashSet::new(),
         callee: HashSet::new(),
     };
-    let mut file = File::open("LEGENDtmp.rs").expect("Unable to open file");
+    let mut file = File::open("src/main.rs").expect("Unable to open file");
 
     let mut src = String::new();
     file.read_to_string(&mut src).expect("Unable to read file");
