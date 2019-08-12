@@ -14,7 +14,7 @@ log = "0.4.6"
 quote = "0.6"
 
 [dependencies.syn]
-version = "0.15"
+version = "0.15.42"
 # default-features = true
 # extra-traits = true
 features = ["full", "printing", "parsing", "extra-traits"]

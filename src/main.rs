@@ -11,10 +11,8 @@ extern crate log;
 extern crate syn;
 
 #[macro_use]
-pub mod utils;
+pub mod macros;
 pub mod signature;
-
-use self::utils::*;
 
 use std::fs::File;
 use std::io;
@@ -57,14 +55,7 @@ enum BossKind {
     None,
 }
 
-// #[derive(Hash, Eq, PartialEq)]
-// struct Func {
-//     boss: BossKind,
-//     path: PathEx,
-//     decl: Option<syntax::ast::FnDecl>,
-// }
-
-#[derive(Hash, Eq, PartialEq)]
+#[derive(Clone, Hash, Eq, PartialEq)]
 struct Func {
     boss: BossKind,
     path: Path,
@@ -105,23 +96,23 @@ struct Func {
 //         write!(f, "{:?}", self.path)
 //     }
 // }
-// impl fmt::Display for Func {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         let mut is_1st: bool = true;
-//         let mut tmp = String::from(&self.path[0].0);
-//         for seg in &self.path {
-//             if is_1st {
-//                 is_1st = false;
-//                 continue;
-//             }
-//             tmp.push_str(&format!("::{}", seg.0));
-//             if let Some(para) = &seg.1 {
-//                 error!("xcxcxcxcxcxcxc : {:?}", para);
-//             }
-//         }
-//         write!(f, "{}()", tmp)
-//     }
-// }
+impl fmt::Display for Func {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut sign = "fn ".to_string() + &path_to_string(&self.path);
+        let tys: Vec<String> = self
+            .decl
+            .inputs
+            .iter()
+            .map(|x| fn_arg_to_string(x))
+            .collect();
+        sign = sign + "(" + &tys.join(", ") + ")";
+        if let ReturnType::Type(_, ty) = &self.decl.output {
+            sign = sign + " -> " + &type_to_string(ty);
+        }
+
+        write!(f, "{}()", sign)
+    }
+}
 
 // fn get_path(path: &syntax::ast::Path) -> Path {
 //     trace!("get_path: {}", pprust::path_to_string(&path));
@@ -171,7 +162,7 @@ fn handle_item(record: &mut Record, item: &Item) {
             block,
         }) => {
             let id = format!("{}", ident).to_owned();
-            trace!("======= vis: {:#?}\tFn {}()", vis, id);
+            trace!("======= vis: {:#?}", vis);
 
             debug_all!(handle_item_fn, vis, ident);
             NeverConsidered!(
@@ -184,7 +175,7 @@ fn handle_item(record: &mut Record, item: &Item) {
                 [abi, |x: &Option<Abi>| *x == None]
             );
 
-            //         pub struct FnDecl {
+            // pub struct FnDecl {
             //     pub fn_token: Token![fn],
             //     pub generics: Generics,
             //     pub paren_token: token::Paren,
@@ -194,17 +185,19 @@ fn handle_item(record: &mut Record, item: &Item) {
             // }
 
             if id == "demo" {
-                info!("let analysis demo()!");
-                debug_all!(handle_item_decl, decl.inputs, decl.output);
+                // info!("let analysis demo()!");
+                // debug_all!(handle_item_decl, decl.inputs, decl.output);
             }
-            match &decl.output {
-                ReturnType::Default => info!("decl_inputs default"),
-                ReturnType::Type(_, ty) => info!("decl_inputs {}", type_to_string(ty)),
-            }
-
+            // info!("current : Fn {}()", id);
+            let caller = Func {
+                boss: BossKind::None,
+                path: (PathSegment::from(ident.clone())).into(),
+                decl: (**decl).clone(),
+            };
+            record.caller.insert(caller.clone());
             // error!("type name: {}",type_name(&decl));
             for stmt in &block.stmts {
-                handle_stmt(record, stmt);
+                handle_stmt(record, &caller, stmt);
             }
         }
         _ => {
@@ -290,25 +283,26 @@ fn handle_item(record: &mut Record, item: &Item) {
 
 fn handle_type(ty: Type) {}
 
-fn handle_stmt(record: &mut Record, stmt: &syn::Stmt) {
+fn handle_stmt(record: &mut Record, caller: &Func, stmt: &Stmt) {
     // info!("stmt: {:#?}", stmt);
     //     info!("StmtKind :");
+    use syn::Stmt::*;
     match stmt {
-        syn::Stmt::Local(local) => {
+        Local(local) => {
             // info!("handle_stmt Local");
             // handle_expr(record, caller, &expr.init.as_ref().unwrap());
         }
-        syn::Stmt::Item(item) => {
+        Item(item) => {
             // info!("handle_stmt [FATAL ]:It's a trap!!! {:?}", item);
         }
-        syn::Stmt::Expr(expr) => {
+        Expr(expr) => {
             info!("handle_stmt expr!");
             // warn!("{}",type_name(&expr));
-            handle_expr(record, &expr);
+            handle_expr(record, caller, &expr);
 
             // handle_expr(record, caller, &expr);
         }
-        syn::Stmt::Semi(expr, t) => {
+        Semi(expr, t) => {
             // info!("handle_stmt Semi!");
             // handle_expr(record, caller, &expr);
         }
@@ -316,7 +310,7 @@ fn handle_stmt(record: &mut Record, stmt: &syn::Stmt) {
 }
 
 // fn handle_expr(record: &mut Record, caller: &Func, expr: &syn::expr::Expr) {
-fn handle_expr(record: &mut Record, expr: &syn::Expr) {
+fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
     //     let node = &expr.node;
     use syn::Expr::*;
 
@@ -742,8 +736,8 @@ fn handle_expr(record: &mut Record, expr: &syn::Expr) {
         _ => {} //info!("handle_expr: _"), // debug
     }
 }
-fn demo(_: u32, _: i32) -> i32 {
-    123
+fn demo(_: u32, _: i32) -> std::vec::Vec<i32> {
+    vec![1, 23]
 }
 struct Record {
     impls: HashMap<Type, Vec<Func>>,
@@ -895,7 +889,10 @@ fn main() {
         called: HashSet::new(),
         callee: HashSet::new(),
     };
-    let mut file = File::open("src/main.rs").expect("Unable to open file");
+
+    let args: Vec<String> = env::args().collect();
+    let filename = args[1].as_str();
+    let mut file = File::open(filename).expect("Unable to open file");
 
     let mut src = String::new();
     file.read_to_string(&mut src).expect("Unable to read file");
@@ -905,129 +902,7 @@ fn main() {
         handle_item(&mut record, &item);
     }
 
-    //println!("{:#?}",syntax.items[0] );
-
-    // println!("{:#?}", syntax);
+    for caller in &record.caller {
+        warn!("caller {}", caller);
+    }
 }
-
-// macro_rules! export_token_macro {
-//     ($($dollar:tt)*) => {
-//         /// A type-macro that expands to the name of the Rust type representation of a
-//         /// given token.
-//         ///
-//         /// See the [token module] documentation for details and examples.
-//         ///
-//         /// [token module]: token/index.html
-//         // Unfortunate duplication due to a rustdoc bug.
-//         // https://github.com/rust-lang/rust/issues/45939
-//         #[macro_export]
-//         macro_rules! Token {
-//             (abstract)    => { $crate::token::Abstract };
-//             (as)          => { $crate::token::As };
-//             (async)       => { $crate::token::Async };
-//             (auto)        => { $crate::token::Auto };
-//             (become)      => { $crate::token::Become };
-//             (box)         => { $crate::token::Box };
-//             (break)       => { $crate::token::Break };
-//             (const)       => { $crate::token::Const };
-//             (continue)    => { $crate::token::Continue };
-//             (crate)       => { $crate::token::Crate };
-//             (default)     => { $crate::token::Default };
-//             (do)          => { $crate::token::Do };
-//             (dyn)         => { $crate::token::Dyn };
-//             (else)        => { $crate::token::Else };
-//             (enum)        => { $crate::token::Enum };
-//             (existential) => { $crate::token::Existential };
-//             (extern)      => { $crate::token::Extern };
-//             (final)       => { $crate::token::Final };
-//             (fn)          => { $crate::token::Fn };
-//             (for)         => { $crate::token::For };
-//             (if)          => { $crate::token::If };
-//             (impl)        => { $crate::token::Impl };
-//             (in)          => { $crate::token::In };
-//             (let)         => { $crate::token::Let };
-//             (loop)        => { $crate::token::Loop };
-//             (macro)       => { $crate::token::Macro };
-//             (match)       => { $crate::token::Match };
-//             (mod)         => { $crate::token::Mod };
-//             (move)        => { $crate::token::Move };
-//             (mut)         => { $crate::token::Mut };
-//             (override)    => { $crate::token::Override };
-//             (priv)        => { $crate::token::Priv };
-//             (pub)         => { $crate::token::Pub };
-//             (ref)         => { $crate::token::Ref };
-//             (return)      => { $crate::token::Return };
-//             (Self)        => { $crate::token::SelfType };
-//             (self)        => { $crate::token::SelfValue };
-//             (static)      => { $crate::token::Static };
-//             (struct)      => { $crate::token::Struct };
-//             (super)       => { $crate::token::Super };
-//             (trait)       => { $crate::token::Trait };
-//             (try)         => { $crate::token::Try };
-//             (type)        => { $crate::token::Type };
-//             (typeof)      => { $crate::token::Typeof };
-//             (union)       => { $crate::token::Union };
-//             (unsafe)      => { $crate::token::Unsafe };
-//             (unsized)     => { $crate::token::Unsized };
-//             (use)         => { $crate::token::Use };
-//             (virtual)     => { $crate::token::Virtual };
-//             (where)       => { $crate::token::Where };
-//             (while)       => { $crate::token::While };
-//             (yield)       => { $crate::token::Yield };
-//             (+)           => { $crate::token::Add };
-//             (+=)          => { $crate::token::AddEq };
-//             (&)           => { $crate::token::And };
-//             (&&)          => { $crate::token::AndAnd };
-//             (&=)          => { $crate::token::AndEq };
-//             (@)           => { $crate::token::At };
-//             (!)           => { $crate::token::Bang };
-//             (^)           => { $crate::token::Caret };
-//             (^=)          => { $crate::token::CaretEq };
-//             (:)           => { $crate::token::Colon };
-//             (::)          => { $crate::token::Colon2 };
-//             (,)           => { $crate::token::Comma };
-//             (/)           => { $crate::token::Div };
-//             (/=)          => { $crate::token::DivEq };
-//             (.)           => { $crate::token::Dot };
-//             (..)          => { $crate::token::Dot2 };
-//             (...)         => { $crate::token::Dot3 };
-//             (..=)         => { $crate::token::DotDotEq };
-//             (=)           => { $crate::token::Eq };
-//             (==)          => { $crate::token::EqEq };
-//             (>=)          => { $crate::token::Ge };
-//             (>)           => { $crate::token::Gt };
-//             (<=)          => { $crate::token::Le };
-//             (<)           => { $crate::token::Lt };
-//             (*=)          => { $crate::token::MulEq };
-//             (!=)          => { $crate::token::Ne };
-//             (|)           => { $crate::token::Or };
-//             (|=)          => { $crate::token::OrEq };
-//             (||)          => { $crate::token::OrOr };
-//             (#)           => { $crate::token::Pound };
-//             (?)           => { $crate::token::Question };
-//             (->)          => { $crate::token::RArrow };
-//             (<-)          => { $crate::token::LArrow };
-//             (%)           => { $crate::token::Rem };
-//             (%=)          => { $crate::token::RemEq };
-//             (=>)          => { $crate::token::FatArrow };
-//             (;)           => { $crate::token::Semi };
-//             (<<)          => { $crate::token::Shl };
-//             (<<=)         => { $crate::token::ShlEq };
-//             (>>)          => { $crate::token::Shr };
-//             (>>=)         => { $crate::token::ShrEq };
-//             (*)           => { $crate::token::Star };
-//             (-)           => { $crate::token::Sub };
-//             (-=)          => { $crate::token::SubEq };
-//             (~)           => { $crate::token::Tilde };
-//             (_)           => { $crate::token::Underscore };
-//             $($dollar     => { $crate::token::Dollar };)*
-//         }
-//     };
-// }
-
-// fn main() {
-//     pretty_env_logger::init();
-
-//     let contents = get_file();
-//     generate_dot(&gen_callgraph(&contents));
-// }

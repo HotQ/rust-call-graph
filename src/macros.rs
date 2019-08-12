@@ -24,7 +24,7 @@ macro_rules! NeverConsidered{
         {
             let info = brk!("Never considered!  ",$($str),*).to_string();
             $(
-                if !$in2($in1){
+                if !$in2(& $in1){
                     error!("{} {}:{} | {} => {:#?}",info, file!(), line!(), stringify!($in1), $in1);
                 }
             )*
