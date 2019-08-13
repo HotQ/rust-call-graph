@@ -45,3 +45,12 @@ macro_rules! debug_all {
         trace!( concat!(stringify!($info), concat!($(concat!("\n\t\t\t\t\t",stringify!($arg) ," {:?}"),)+ )), $($arg),+)
     };
 }
+
+#[macro_export]
+macro_rules! html_escape {
+    ( $src:expr) => {
+        $src.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+    };
+}

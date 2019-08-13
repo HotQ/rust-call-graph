@@ -14,6 +14,9 @@ extern crate syn;
 pub mod macros;
 pub mod signature;
 
+use macros::*;
+use signature::*;
+
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -25,57 +28,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::{env, fmt, fs};
 
-// extern crate syntex_syntax as syntax;
-
-// use syntax::ast::{Expr, ExprKind, ImplItemKind, Item, ItemKind, Stmt, StmtKind, TyKind};
-// use syntax::codemap::{CodeMap, FilePathMapping};
-// use syntax::parse::{self, ParseSess};
-// use syntax::print::pprust;
-// use syntax::tokenstream::TokenStream;
-
-// fn ident2string(id: &syntex_pos::symbol::Ident) -> String {
-//     let str_id = String::from(&*id.name.as_str());
-//     str_id
-// }
-
-// type Path = Vec<String>;
-// type PathEx = Vec<(
-//     String,
-//     Option<syntex_syntax::ptr::P<syntax::ast::PathParameters>>,
-// )>;
-
-// #[derive(Hash, Eq, PartialEq, Clone)]
-// struct Type {
-//     path: Path,
-// }
-
-#[derive(Hash, Eq, PartialEq, Clone)]
-enum BossKind {
-    Type(Type),
-    None,
-}
+use syn::*;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 struct Func {
-    boss: BossKind,
     path: Path,
-    decl: FnDecl, //Option<syn::FnArg>,
+    decl: Option<FnDecl>,
 }
-
-// impl Type {
-//     fn to_str(&self) -> String {
-//         let mut ret = self.path[0].clone();
-//         let mut is_1st = true;
-//         for seg in &self.path {
-//             if is_1st {
-//                 is_1st = false;
-//                 continue;
-//             }
-//             ret.push_str(&format!("::{}", seg));
-//         }
-//         ret
-//     }
-// }
 
 // impl Clone for Func {
 //     fn clone(&self) -> Self {
@@ -99,58 +58,22 @@ struct Func {
 impl fmt::Display for Func {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut sign = "fn ".to_string() + &path_to_string(&self.path);
-        let tys: Vec<String> = self
-            .decl
-            .inputs
-            .iter()
-            .map(|x| fn_arg_to_string(x))
-            .collect();
-        sign = sign + "(" + &tys.join(", ") + ")";
-        if let ReturnType::Type(_, ty) = &self.decl.output {
-            sign = sign + " -> " + &type_to_string(ty);
-        }
+        if let Some(decl) = self.decl.clone() {
+            let tys: Vec<String> = decl.inputs.iter().map(|x| fn_arg_to_string(x)).collect();
+            sign = sign + &generic_to_string(&decl.generics) + "(" + &tys.join(", ") + ")";
 
-        write!(f, "{}()", sign)
+            if let ReturnType::Type(_, ty) = &decl.output {
+                sign = sign + " -> " + &type_to_string(ty);
+            }
+        }
+        write!(f, "{}", sign)
     }
 }
 
-// fn get_path(path: &syntax::ast::Path) -> Path {
-//     trace!("get_path: {}", pprust::path_to_string(&path));
-//     let mut ret = Vec::new();
-//     for segment in &path.segments {
-//         let path_name = ident2string(&segment.identifier);
-//         ret.push(path_name);
-//     }
-//     trace!("path: {:?}", ret);
-//     ret
-// }
-
-// fn get_pathex(path: &syntax::ast::Path) -> PathEx {
-//     trace!("get_pathex: {}", pprust::path_to_string(&path));
-//     let mut ret = Vec::new();
-//     for segment in &path.segments {
-//         let path_name = ident2string(&segment.identifier);
-//         if let Some(para) = &segment.parameters {
-//             // trace!("segment: {:?}", para);
-//             // trace!("segmenty: {}", utils::type_name(&para));
-//         }
-//         // trace!("seg ID : {}", path_name);
-//         ret.push((path_name, segment.parameters.clone()));
-//     }
-//     trace!("path: {:?}", ret);
-//     ret
-// }
-//fn id2str()
-
-macro_rules! debug_all {
-    ($info:expr,$($arg:expr),+) => {
-        trace!( concat!(stringify!($info), concat!($(concat!("\n",stringify!($arg) ,": {:#?}"),)+ )), $($arg),+)
-    };
-}
-use signature::*;
 fn handle_item(record: &mut Record, item: &Item) {
+    use Item::*;
     match item {
-        Item::Fn(ItemFn {
+        Fn(ItemFn {
             attrs,
             vis,
             constness,
@@ -161,9 +84,6 @@ fn handle_item(record: &mut Record, item: &Item) {
             decl,
             block,
         }) => {
-            let id = format!("{}", ident).to_owned();
-            trace!("======= vis: {:#?}", vis);
-
             debug_all!(handle_item_fn, vis, ident);
             NeverConsidered!(
                 handle_item,
@@ -175,24 +95,9 @@ fn handle_item(record: &mut Record, item: &Item) {
                 [abi, |x: &Option<Abi>| *x == None]
             );
 
-            // pub struct FnDecl {
-            //     pub fn_token: Token![fn],
-            //     pub generics: Generics,
-            //     pub paren_token: token::Paren,
-            //     pub inputs: Punctuated<FnArg, Token![,]>,
-            //     pub variadic: Option<Token![...]>,
-            //     pub output: ReturnType,
-            // }
-
-            if id == "demo" {
-                // info!("let analysis demo()!");
-                // debug_all!(handle_item_decl, decl.inputs, decl.output);
-            }
-            // info!("current : Fn {}()", id);
             let caller = Func {
-                boss: BossKind::None,
                 path: (PathSegment::from(ident.clone())).into(),
-                decl: (**decl).clone(),
+                decl: Some((**decl).clone()),
             };
             record.caller.insert(caller.clone());
             // error!("type name: {}",type_name(&decl));
@@ -201,87 +106,10 @@ fn handle_item(record: &mut Record, item: &Item) {
             }
         }
         _ => {
-            // error!("this ItemKind is not used yet");
-            // error!("ItemKind {:?}", item);
+            error!("this ItemKind is not used yet: {:?}", item);
         }
     }
-    //     let id = ident2string(&item.ident);
-    //     info!(
-    //         "======【{} {}】======",
-    //         id,
-    //         String::from(item.node.descriptive_variant())
-    //     );
-    //     match &item.node {
-    //         ItemKind::Fn(p_fn_decl, unsafety, constness, abi, rgenerics, p_block) => {
-    //             let f = Func {
-    //                 boss: BossKind::None,
-    //                 path: vec![(id.clone(), None)],
-    //                 decl: Some((**p_fn_decl).clone()),
-    //             };
-    //             record.caller.insert(f.clone());
-
-    //             for s in &p_block.stmts {
-    //                 handle_stmt(record, &f, &s);
-    //             }
-    //             // =============================================
-    //         }
-    //         ItemKind::Impl(
-    //             unsafety,
-    //             impl_polarity,
-    //             defaultness,
-    //             generics,
-    //             o_trait_ref,
-    //             p_ty,
-    //             vec_implitem,
-    //         ) => {
-    //             info!("ItemKind::Impl {:?} {:?}", p_ty, o_trait_ref);
-    //             info!("{:?}", item.node);
-    //             info!("{:?}", unsafety);
-    //             info!("{:?}", impl_polarity);
-    //             info!("{:?}", defaultness);
-    //             info!("gen  :\t{:?}", generics);
-    //             info!("trait:\t{:?}", o_trait_ref);
-    //             info!("type :\t{:?}", p_ty);
-    //             info!("impl :\t{:?}", vec_implitem);
-
-    //             info!("type kind {:?}", p_ty.node);
-    //             if let TyKind::Path(_, path) = &p_ty.node {
-    //                 trace!("TyKind::Path");
-    //                 let ty: Type = Type {
-    //                     path: get_path(&path),
-    //                 };
-
-    //                 if !record.impls.contains_key(&ty) {
-    //                     record.impls.insert(ty.clone(), Vec::new());
-    //                 }
-
-    //                 for implitem in vec_implitem {
-    //                     match &implitem.node {
-    //                         ImplItemKind::Method(sig, block) => {
-    //                             let id = ident2string(&implitem.ident);
-    //                             let f = Func {
-    //                                 boss: BossKind::Type(ty.clone()),
-    //                                 path: vec![(id.clone(), None)],
-    //                                 decl: Some((*sig.decl).clone()),
-    //                             };
-    //                             record.caller.insert(f.clone());
-    //                             record.impls.get_mut(&ty).unwrap().push(f.clone());
-    //                             for stmt in &block.stmts {
-    //                                 handle_stmt(record, &f, &stmt);
-    //                             }
-    //                         }
-    //                         _ => error!("implitem : {:?}", implitem.node),
-    //                     }
-    //                 }
-    //             } else {
-    //                 error!("Unmatched Type Kind");
-    //             }
-    //         }
-    //         _ => {} // error!("  this ItemKind is not used yet"),
-    //     }
 }
-
-fn handle_type(ty: Type) {}
 
 fn handle_stmt(record: &mut Record, caller: &Func, stmt: &Stmt) {
     // info!("stmt: {:#?}", stmt);
@@ -289,29 +117,35 @@ fn handle_stmt(record: &mut Record, caller: &Func, stmt: &Stmt) {
     use syn::Stmt::*;
     match stmt {
         Local(local) => {
-            // info!("handle_stmt Local");
             // handle_expr(record, caller, &expr.init.as_ref().unwrap());
+            if let Some((_, expr)) = local.init.clone() {
+                trace!("handle_stmt Local");
+                handle_expr(record, caller, &expr);
+            }
         }
         Item(item) => {
-            // info!("handle_stmt [FATAL ]:It's a trap!!! {:?}", item);
+            handle_item(record, item);
         }
         Expr(expr) => {
-            info!("handle_stmt expr!");
-            // warn!("{}",type_name(&expr));
+            trace!("handle_stmt expr!");
             handle_expr(record, caller, &expr);
-
-            // handle_expr(record, caller, &expr);
         }
         Semi(expr, t) => {
-            // info!("handle_stmt Semi!");
-            // handle_expr(record, caller, &expr);
+            trace!("handle_stmt Semi!");
+            handle_expr(record, caller, &expr);
         }
     };
 }
 
-// fn handle_expr(record: &mut Record, caller: &Func, expr: &syn::expr::Expr) {
+macro_rules! handle_block {
+    ($record:ident,$caller:ident,$block:expr) => {
+        for stmt in &$block.stmts {
+            handle_stmt($record, $caller, &stmt);
+        }
+    };
+}
+
 fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
-    //     let node = &expr.node;
     use syn::Expr::*;
 
     match expr {
@@ -353,6 +187,36 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         //     pub paren_token: token::Paren,
         //     pub args: Punctuated<Expr, Token![,]>,
         // }),
+        Call(expr_call) => {
+            // warn!("Call   {:?}", expr_call.)
+            use Expr::*;
+            match &*expr_call.func {
+                Path(expr_path) => {
+                    let callee = Func {
+                        path: expr_path.path.clone(),
+                        decl: None,
+                    };
+                    record.callee.insert(callee.clone());
+                    record.called.insert((caller.clone(), callee));
+                }
+                _ => error!("Call!NeverConsidered! {}", type_name(&*expr_call.func)),
+            }
+            for arg in &expr_call.args {
+                // warn!("Call.arg   {:?}", arg);
+                handle_expr(record, caller, arg);
+            }
+        }
+
+        MethodCall(method_call) => {
+            // error!("i can't handle this right now ");
+            // error!("receiver {:?}", method_call.receiver);
+            handle_expr(record, caller, &method_call.receiver);
+
+            for arg in &method_call.args {
+                // warn!("MethodCall args {:?}", arg);
+                handle_expr(record, caller, arg);
+            }
+        }
 
         // /// A method call expression: `x.foo::<T>(a, b)`.
         // ///
@@ -452,6 +316,14 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         //     pub then_branch: Block,
         //     pub else_branch: Option<(Token![else], Box<Expr>)>,
         // }),
+        If(expr_if) => {
+            handle_expr(record, caller, &expr_if.cond);
+            handle_block!(record, caller, expr_if.then_branch);
+            // error!("expr_if.then_branch {:#?}", expr_if.then_branch);
+            if let Some((_, expr)) = &expr_if.else_branch {
+                handle_expr(record, caller, &*expr);
+            }
+        }
 
         // /// A while loop: `while expr { ... }`.
         // ///
@@ -472,7 +344,9 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
                 [&for_loop.attrs, move |x: &Vec<Attribute>| x.len() == 0],
                 [&for_loop.label, move |x: &Option<Label>| *x == None]
             );
-            // trace!("is a for loop \n{:#?}", for_loop);
+            // trace!("ForLoop Pat: {:?}", for_loop.pat);
+            handle_expr(record, caller, &*for_loop.expr);
+            handle_block!(record, caller, for_loop.body);
         }
 
         // /// Conditionless loop: `loop { ... }`.
@@ -484,17 +358,22 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         //     pub loop_token: Token![loop],
         //     pub body: Block,
         // }),
-
-        // /// A `match` expression: `match n { Some(n) => {}, None => {} }`.
-        // ///
-        // /// *This type is available if Syn is built with the `"full"` feature.*
-        // pub Match(ExprMatch #full {
-        //     pub attrs: Vec<Attribute>,
-        //     pub match_token: Token![match],
-        //     pub expr: Box<Expr>,
-        //     pub brace_token: token::Brace,
-        //     pub arms: Vec<Arm>,
-        // }),
+        Match(expr_match) => {
+            NeverConsidered!(Match, [expr_match.attrs, |x: &Vec<Attribute>| x.len() == 0]);
+            handle_expr(record, caller, &expr_match.expr);
+            for arm in &expr_match.arms {
+                // info!("arm: {:#?}", arm.body);
+                NeverConsidered!(
+                    Match,
+                    guard,
+                    [
+                        arm.guard,
+                        |x: &Option<(Token![if], std::boxed::Box<Expr>)>| *x == None
+                    ]
+                );
+                handle_expr(record, caller, &*arm.body);
+            }
+        }
 
         // /// A closure expression: `|a, b| a + b`.
         // ///
@@ -510,6 +389,9 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         //     pub output: ReturnType,
         //     pub body: Box<Expr>,
         // }),
+        Closure(closure) => {
+            handle_expr(record, caller, &*closure.body);
+        }
 
         // /// An unsafe block: `unsafe { ... }`.
         // ///
@@ -528,6 +410,18 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         //     pub label: Option<Label>,
         //     pub block: Block,
         // }),
+        Block(ExprBlock {
+            attrs,
+            label,
+            block,
+        }) => {
+            NeverConsidered!(
+                Block,
+                [attrs, |x: &Vec<Attribute>| x.len() == 0],
+                [label, |x: &Option<Label>| *x == None]
+            );
+            handle_block!(record, caller, block);
+        }
 
         // /// An assignment expression: `a = compute()`.
         // ///
@@ -593,6 +487,7 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         //     pub qself: Option<QSelf>,
         //     pub path: Path,
         // }),
+        // Path(expr_path) => handle_expr(record, caller, &expr_path.path),
 
         // /// A referencing operation: `&a` or `&mut a`.
         // ///
@@ -733,7 +628,7 @@ fn handle_expr(record: &mut Record, caller: &Func, expr: &Expr) {
         // pub Verbatim(ExprVerbatim #manual_extra_traits {
         //     pub tts: TokenStream,
         // }),
-        _ => {} //info!("handle_expr: _"), // debug
+        _ => {} // _ => info!("handle_expr: ___ {:?}", expr), // debug
     }
 }
 fn demo(_: u32, _: i32) -> std::vec::Vec<i32> {
@@ -749,140 +644,91 @@ struct Record {
 // fn mangle_type(ty: &Type) -> String {
 //     let mut ret = String::from("_ZT");
 //     for seg in &ty.path {
-//         if seg == "{{root}}" {
-//             ret.push_str(&format!("4root"));
-//         }
 //         ret.push_str(&format!("{}{}", seg.len(), seg));
 //     }
 //     ret.push('E');
 //     ret
 // }
-// fn mangle_func(func: &Func) -> String {
-//     let mut ret = String::from("_ZN");
-//     match &func.boss {
-//         BossKind::Type(ty) => {
-//             for seg in &ty.path {
-//                 ret.push_str(&format!("{}{}", seg.len(), seg));
-//             }
-//         }
-//         BossKind::None => {}
-//     }
-//     for seg in &func.path {
-//         if seg.0 == "{{root}}" {
-//             ret.push_str(&format!("4root"));
-//         } else {
-//             ret.push_str(&format!("{}{}", seg.0.len(), seg.0));
-//         }
-//     }
-//     ret.push('E');
-//     ret
-// }
-// fn decl_dot(decl: &syntax::ast::FnDecl) -> String {
-//     let mut ret = String::from("");
-//     ret = ret
-//         + "\n\t\t| "
-//         + &match &decl.output {
-//             syntax::ast::FunctionRetTy::Default(_) => String::from(" "),
-//             syntax::ast::FunctionRetTy::Ty(ty) => {
-//                 (&pprust::ty_to_string(&ty)).replace("&", "&amp;")
-//             }
-//         };
-//     for input in &decl.inputs {
-//         ret = ret + "\n\t\t| " + &(&pprust::ty_to_string(&input.ty)).replace("&", "&amp;");
-//     }
-//     ret
-// }
-// fn generate_dot(record: &Record) {
-//     let mut src_dot = String::from("digraph demo{\n\trankdir=LR\n");
+fn mangle_func(func: &Func) -> String {
+    let mut ret = String::from("_ZN");
+    for seg in &func.path.segments {
+        let tmp = seg.ident.to_string();
+        ret.push_str(&format!("{}{}", tmp.len(), tmp));
+    }
+    ret.push('E');
+    ret
+}
 
-//     for callee in &record.callee {
-//         src_dot += &format!(
-//             "\t{}[shape = record label = <<B>{}</B>>];\n",
-//             mangle_func(&callee),
-//             callee
-//         );
-//     }
-//     for caller in &record.caller {
-//         src_dot += &format!(
-//             "\t{}[shape = record label = <<B> {} </B>{}>];\n",
-//             mangle_func(&caller),
-//             caller,
-//             decl_dot(&(caller.decl.clone().unwrap())),
-//         );
-//     }
+fn decl_dot(decl: &FnDecl) -> String {
+    let mut ret = String::from("");
+    ret = ret
+        + "\n\t\t| "
+        + &match &decl.output {
+            ReturnType::Default => String::from(" "),
+            ReturnType::Type(_, ty) => html_escape!(type_to_string(ty)),
+        };
+    for input in &decl.inputs {
+        ret = ret + "\n\t\t| " + &html_escape!(fn_arg_to_string(input));
+    }
+    ret
+}
 
-//     // cluster the `impl` block
-//     for pair in &record.impls {
-//         src_dot += &format!(
-//             "\tsubgraph cluster{} {}\n\
-//              \t\tstyle = \"bold\"\n\
-//              \t\t{}[shape = none, label = \"{}\"]\n",
-//             mangle_type(&pair.0),
-//             '{',
-//             mangle_type(&pair.0),
-//             pair.0.to_str()
-//         );
-//         for func in pair.1 {
-//             src_dot += &format!("\t\t{};\n", mangle_func(&func));
-//         }
-//         src_dot += &format!("\t{}\n", '}');
-//     }
+fn generate_dot() {
+    let record = gen_callgraph();
+    let mut src_dot = String::from("digraph demo{\n\trankdir=LR\n");
 
-//     // edge: caller -> callee
-//     for tuple in &record.called {
-//         src_dot += &format!("\t{}->{};\n", mangle_func(&tuple.0), mangle_func(&tuple.1));
-//     }
+    for callee in &record.callee {
+        src_dot += &format!(
+            "\t{}[shape = record label = <<B>{}</B>>];\n",
+            mangle_func(&callee),
+            path_to_string(&callee.path)
+        );
+    }
+    for caller in &record.caller {
+        src_dot += &format!(
+            "\t{}[shape = record label = <<B> {} </B>{}>];\n",
+            mangle_func(&caller),
+            path_to_string(&caller.path),
+            decl_dot(&(caller.decl.clone().unwrap())),
+        );
+    }
 
-//     // end of the graph
-//     src_dot += "}";
+    // // cluster the `impl` block
+    // for pair in &record.impls {
+    //     src_dot += &format!(
+    //         "\tsubgraph cluster{} {}\n\
+    //          \t\tstyle = \"bold\"\n\
+    //          \t\t{}[shape = none, label = \"{}\"]\n",
+    //         mangle_type(&pair.0),
+    //         '{',
+    //         mangle_type(&pair.0),
+    //         pair.0.to_str()
+    //     );
+    //     for func in pair.1 {
+    //         src_dot += &format!("\t\t{};\n", mangle_func(&func));
+    //     }
+    //     src_dot += &format!("\t{}\n", '}');
+    // }
 
-//     write_to_file(src_dot);
-// }
-// fn write_to_file(src_dot: String) {
-//     let path: &str = "output.dot";
-//     let mut output: File = File::create(path).unwrap();
-//     let res = write!(output, "{}", src_dot);
-//     let input: File = File::open(path).unwrap();
-//     let buffered: BufReader<File> = BufReader::new(input);
-// }
-// fn gen_callgraph(contents: &String) -> Record {
-//     let parse_session = ParseSess::new(FilePathMapping::empty());
+    // edge: caller -> callee
+    for tuple in &record.called {
+        src_dot += &format!("\t{}->{};\n", mangle_func(&tuple.0), mangle_func(&tuple.1));
+    }
 
-//     let mut parser =
-//         parse::new_parser_from_source_str(&parse_session, String::new(), String::from(contents));
-//     let result = parser.parse_crate_mod();
+    // end of the graph
+    src_dot += "}";
 
-//     let mut record: Record = Record {
-//         impls: HashMap::new(),
-//         caller: HashSet::new(),
-//         called: HashSet::new(),
-//         callee: HashSet::new(),
-//     };
+    write_to_file(src_dot);
+}
+fn write_to_file(src_dot: String) {
+    let path: &str = "output.dot";
+    let mut output: File = File::create(path).unwrap();
+    let res = write!(output, "{}", src_dot);
+    let input: File = File::open(path).unwrap();
+    let buffered: BufReader<File> = BufReader::new(input);
+}
 
-//     if let Ok(v) = result {
-//         for i in &v.module.items {
-//             handle_item(&mut record, &i);
-//         }
-//     }
-//     return record;
-// }
-// fn get_file() -> String {
-//     let args: Vec<String> = env::args().collect();
-//     let filename = args[1].as_str();
-//     fs::read_to_string(filename).expect("Something went wrong reading the file")
-// }
-
-use syn::*;
-use syn::{parse_macro_input, DeriveInput};
-
-// pub struct File {
-//     pub shebang: Option<String>,
-//     pub attrs: Vec<Attribute>,
-//     pub items: Vec<Item>,
-// }
-fn main() {
-    pretty_env_logger::init();
-
+fn gen_callgraph() -> Record {
     let mut record: Record = Record {
         impls: HashMap::new(),
         caller: HashSet::new(),
@@ -903,6 +749,26 @@ fn main() {
     }
 
     for caller in &record.caller {
-        warn!("caller {}", caller);
+        warn!("caller {}\t\t\t\t\t{}", caller, mangle_func(&caller));
+        // error!(
+        //     "ajdsflkajdfads : {}",
+        //     match &caller.decl.clone().unwrap().output {
+        //         ReturnType::Default => String::from(" "),
+        //         ReturnType::Type(_, ty) => html_escape!(type_to_string(ty)),
+        //     }
+        // );
     }
+    for callee in &record.callee {
+        warn!("callee {}\t\t\t\t\t{}", callee, mangle_func(&callee));
+    }
+    for called in &record.called {
+        warn!("called {} =====> {}", called.0, called.1);
+    }
+    return record;
+}
+
+fn main() {
+    pretty_env_logger::init();
+
+    generate_dot();
 }
